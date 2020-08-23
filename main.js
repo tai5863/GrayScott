@@ -22,27 +22,16 @@ window.onload = () => {
 
   gl.viewport(0.0, 0.0, canvas.width, canvas.height);
   
-  let initializeGrayScottSourceProgram = createProgram('vs', 'init_fs');
   let calculateGrayScottProgram = createProgram('vs', 'calculate_gray_scott_fs');
   let renderGrayScottProgram = createProgram('vs', 'render_gray_scott_fs');
 
-  let initializeGrayScottSourceUniforms = getUniformLocations(initializeGrayScottSourceProgram, ['u_resolution']);
-  let calculateGrayScottUniforms = getUniformLocations(calculateGrayScottProgram, ['u_texture', 'u_delta', 'u_feed', 'u_kill']);
+  let calculateGrayScottUniforms = getUniformLocations(calculateGrayScottProgram, ['u_resolution', 'u_mousePosition', 'u_mousePress', 'u_texture', 'u_delta', 'u_feed', 'u_kill']);
   let renderGrayScottUniforms = getUniformLocations(renderGrayScottProgram, ['u_texture']);
 
-  let prevMousePosition = [0.0, 0.0];
   let mousePosition = [0.0, 0.0];
-  let mouseDirection = [0.0, 0.0];
-  let mouseMoved = false;
 
   window.addEventListener('mousemove', (e) => {
-    prevMousePosition = mousePosition;
     mousePosition = [e.clientX, canvas.height - e.clientY];
-    if (prevMousePosition != mousePosition) {
-      mouseDirection[0] = mousePosition[0] - prevMousePosition[0];
-      mouseDirection[1] = mousePosition[1] - prevMousePosition[1];
-      mouseMoved = true;
-    }
   });
 
   let mousePress = false;
@@ -58,11 +47,8 @@ window.onload = () => {
   function render() {
 
     let params = {
-      delta: 0.1,
-      // feed: document.getElementById('feed').value,
-      // kill: document.getElementById('kill').value,
-      feed: 0.09,
-      kill: 0.06
+      feed: document.getElementById('feed').value,
+      kill: document.getElementById('kill').value,
     };
 
     // swapping functions
@@ -74,22 +60,16 @@ window.onload = () => {
       grayScottFBObjW = tmp;
     };
 
-    function initializeGrayScottSource() {
-      gl.bindFramebuffer(gl.FRAMEBUFFER, grayScottFBObjW.framebuffer);
-      gl.useProgram(initializeGrayScottSourceProgram);
-      gl.uniform2f(initializeGrayScottSourceUniforms['u_resolution'], canvas.width, canvas.height);
-      gl.drawArrays(gl.TRIANGLES, 0, 6);
-      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-      swapGrayScottFBObj();
-    }
-
-    function calculateGrayScott() {
+    function calculateGrayScott(dt) {
       gl.useProgram(calculateGrayScottProgram);
       gl.bindFramebuffer(gl.FRAMEBUFFER, grayScottFBObjW.framebuffer);
       gl.activeTexture(gl.TEXTURE0);
       gl.bindTexture(gl.TEXTURE_2D, grayScottFBObjR.texture);
+      gl.uniform2f(calculateGrayScottUniforms['u_resolution'], canvas.width, canvas.height);
+      gl.uniform2fv(calculateGrayScottUniforms['u_mousePosition'], mousePosition);
+      gl.uniform1i(calculateGrayScottUniforms['u_mousePress'], mousePress);
       gl.uniform1i(calculateGrayScottUniforms['u_texture'], 0);
-      gl.uniform1f(calculateGrayScottUniforms['u_delta'], params.delta);
+      gl.uniform1f(calculateGrayScottUniforms['u_delta'], dt);
       gl.uniform1f(calculateGrayScottUniforms['u_feed'], params.feed);
       gl.uniform1f(calculateGrayScottUniforms['u_kill'], params.kill);
       gl.drawArrays(gl.TRIANGLES, 0, 6);
@@ -105,7 +85,7 @@ window.onload = () => {
       gl.drawArrays(gl.TRIANGLES, 0, 6);
     }
     
-    initializeGrayScottSource();
+    let previousRealSeconds = new Date().getTime();
 
     loop();
 
@@ -115,26 +95,28 @@ window.onload = () => {
 
       gl.viewport(0.0, 0.0, canvas.width, canvas.height);
 
-      let params = {
-        delta: 0.1,
-        // feed: document.getElementById('feed').value,
-        // kill: document.getElementById('kill').value,
-        feed: 0.09,
-        kill: 0.06
+      params = {
+        feed: document.getElementById('feed').value,
+        kill: document.getElementById('kill').value,
       };
 
-      // let e_render = document.getElementById('disp_render');
-      // let e_force_rad = document.getElementById('disp_force_rad');
-      // let e_force_intensity = document.getElementById('disp_force_intensity');
-      // let e_diffuse = document.getElementById('disp_diffuse');
-      // let e_time_step = document.getElementById('disp_time_step');
+      let e_feed = document.getElementById('disp_feed');
+      let e_kill = document.getElementById('disp_kill');
       
-      // e_force_rad.innerHTML = String(params.force_rad);
-      // e_force_intensity.innerHTML = String(params.force_intensity);
-      // e_diffuse.innerHTML = String(params.diffuse);
-      // e_time_step.innerHTML = String(params.time_step);
+      e_feed.innerHTML = String(params.feed);
+      e_kill.innerHTML = String(params.kill);
 
-      calculateGrayScott();
+      let currentRealSeconds = new Date().getTime();
+      let dt = currentRealSeconds - previousRealSeconds;
+
+      if (dt > 1.0 || dt <= 0) {
+        dt = 1.0;
+      }
+
+      calculateGrayScott(dt);
+
+      previousRealSeconds = currentRealSeconds;
+
       renderGrayScott();
 
       requestAnimationFrame(loop);
