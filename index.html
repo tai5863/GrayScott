@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Stable Fluids</title>
+    <title>GrayScott</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/stats.js/r16/Stats.min.js"></script>
     <script src="main.js"></script>
     <script type="x-shader/x-vertex" id="vs">#version 300 es
@@ -24,291 +24,62 @@
             gl_Position = vec4(position, 1.0);
         }
     </script>
-    <script type="x-shader/x-fragment" id="initialize_velocity_fs">#version 300 es
-        precision highp float;
-
-        out vec2 o_velocity;
-
-        void main(void) {
-            o_velocity = vec2(0.0);
-        }
-    </script>
-    <script type="x-shader/x-fragment" id="initialize_density_fs">#version 300 es
+    <script type="x-shader/x-fragment" id="init_fs">#version 300 es
         precision highp float;
 
         uniform vec2 u_resolution;
 
-        out vec3 o_density;
+        out vec2 o_grayScott;
+
+        float random(vec2 p) {
+          return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453);
+        }
         
         void main(void) {
             vec2 st = (2.0 * gl_FragCoord.xy - u_resolution) / min(u_resolution.x, u_resolution.y);
-            vec3 density = vec3(0.0);
 
-            st = step(0.5, fract(st));
-
-            density = vec3(st.x);
-
-            o_density = density;
-        }
-    </script>
-    <script type="x-shader/x-fragment" id="add_density_fs">#version 300 es
-        precision highp float;
-
-        uniform sampler2D u_density_texture;
-
-        out vec3 o_density;
-
-        void main(void) {
-            vec3 density = texelFetch(u_density_texture, ivec2(gl_FragCoord.xy), 0).xyz;
-            o_density = density;
-        }
-    </script>
-    <script type="x-shader/x-fragment" id="diffuse_density_fs">#version 300 es
-        precision highp float;
-
-        uniform sampler2D u_density_texture;
-        uniform float u_grid_space;
-        uniform float u_dt;
-        uniform float u_diffuse;
-
-        out vec3 o_density;
-
-        void main(void) {
-            ivec2 coord = ivec2(gl_FragCoord.xy);
-
-            float N = 1.0 / u_grid_space;
-
-            float a = u_dt * u_diffuse * N * N;
-
-            vec3 center = texelFetch(u_density_texture, coord, 0).xyz;
-            vec3 left = texelFetch(u_density_texture, coord + ivec2(-1, 0), 0).xyz;
-            vec3 right = texelFetch(u_density_texture, coord + ivec2(1, 0), 0).xyz;
-            vec3 down = texelFetch(u_density_texture, coord + ivec2(0, -1), 0).xyz;
-            vec3 up = texelFetch(u_density_texture, coord + ivec2(0, 1), 0).xyz;
-
-            o_density = (center + a * (left + right + down + up)) / (1.0 + 4.0 * a);
-        }
-    </script>
-    <script type="x-shader/x-fragment" id="advect_density_fs">#version 300 es
-        precision highp float;
-
-        uniform sampler2D u_density_texture;
-        uniform sampler2D u_velocity_texture;
-        uniform float u_grid_space;
-        uniform float u_dt;
-
-        out vec3 o_density;
-
-        void main(void) {
-            ivec2 coord = ivec2(gl_FragCoord.xy);
-
-            vec2 velocity = texelFetch(u_velocity_texture, coord, 0).xy;
-            vec2 prevPos = vec2(coord) * u_grid_space - u_dt * velocity;
-            vec2 prevCoord = prevPos / u_grid_space;
-
-            ivec2 i = ivec2(prevCoord);
-            vec2 f = fract(prevCoord);
-
-            vec3 density00 = texelFetch(u_density_texture, i, 0).xyz;
-            vec3 density10 = texelFetch(u_density_texture, i + ivec2(1, 0), 0).xyz;
-            vec3 density01 = texelFetch(u_density_texture, i + ivec2(0, 1), 0).xyz;
-            vec3 density11 = texelFetch(u_density_texture, i + ivec2(1, 1), 0).xyz;
-
-            o_density = mix(mix(density00, density10, f.x), mix(density01, density11, f.x), f.y);
-        }
-    </script>
-    <script type="x-shader/x-fragment" id="add_external_force_fs">#version 300 es
-        precision highp float;
-
-        uniform sampler2D u_velocity_texture;
-        uniform float u_grid_space;
-        uniform float u_dt;
-        uniform float u_force_rad;
-        uniform vec2 u_force_center;
-        uniform vec2 u_force_direction;
-        uniform float u_force_intensity;
-
-        out vec2 o_velocity;
-
-        void main(void) {
-            vec2 velocity = texelFetch(u_velocity_texture, ivec2(gl_FragCoord.xy), 0).xy;
-            vec2 ex_force = smoothstep(u_force_rad, 0.0, length(u_force_center - gl_FragCoord.xy) * u_grid_space) * normalize(u_force_direction) * u_force_intensity;
-            o_velocity = velocity + u_dt * ex_force;
-        }
-    </script>
-    <script type="x-shader/x-fragment" id="diffuse_velocity_fs">#version 300 es
-        precision highp float;
-
-        uniform sampler2D u_velocity_texture;
-        uniform float u_grid_space;
-        uniform float u_dt;
-        uniform float u_diffuse;
-        uniform vec2 u_resolution;
-
-        out vec2 o_velocity;
-
-        void main(void) {
-            ivec2 coord = ivec2(gl_FragCoord.xy);
-            ivec2 coordMax = ivec2(u_resolution);
-
-            float N = 1.0 / u_grid_space;
-
-            float a = u_dt * u_diffuse * N * N;
-
-            ivec2 vL = coord + ivec2(-1, 0);
-            ivec2 vR = coord + ivec2(1, 0);
-            ivec2 vD = coord + ivec2(0, -1);
-            ivec2 vU = coord + ivec2(0, 1);
-
-            vec2 center = texelFetch(u_velocity_texture, coord, 0).xy;
-            
-            vec2 left = texelFetch(u_velocity_texture, vL, 0).xy;
-            vec2 right = texelFetch(u_velocity_texture, vR, 0).xy;
-            vec2 down = texelFetch(u_velocity_texture, vD, 0).xy;
-            vec2 up = texelFetch(u_velocity_texture, vU, 0).xy;
-
-            if (vL.x < 0) {
-              left.x = -center.x;
+            if (length(st) < 0.3) {
+              o_grayScott = vec2(random(gl_FragCoord.xy * 0.15 + vec2(0.1, 0.2) + vec2(231.32, 171.92)), random(gl_FragCoord.xy * 0.21 + vec2(0.3, 0.4) + vec2(131.17, 319.23)));
+            } else {
+              o_grayScott = vec2(1.0);
             }
-
-            if (vR.x > coordMax.x) {
-              right.x = -center.x;
-            }
-
-            if (vD.y < 0) {
-              down.y = -center.y;
-            }
-
-            if (vU.y > coordMax.y) {
-              up.y = -center.y;
-            }
-
-            o_velocity = (center + a * (left + right + down + up)) / (1.0 + 4.0 * a);
         }
     </script>
-    <script type="x-shader/x-fragment" id="advect_velocity_fs">#version 300 es
+    <script type="x-shader/x-fragment" id="calculate_gray_scott_fs">#version 300 es
         precision highp float;
 
-        uniform sampler2D u_velocity_texture;
-        uniform float u_grid_space;
-        uniform float u_dt;
-        uniform vec2 u_resolution;
+        uniform sampler2D u_texture;
+        uniform float u_delta;
+        uniform float u_feed;
+        uniform float u_kill;
 
-        out vec2 o_velocity;
+        out vec2 o_grayScott;
 
         void main(void) {
             ivec2 coord = ivec2(gl_FragCoord.xy);
-            ivec2 coordMax = ivec2(u_resolution);
+            ivec2 textureSize = textureSize(u_texture, 0);
 
-            vec2 velocity = texelFetch(u_velocity_texture, coord, 0).xy;
-            vec2 prevPos = vec2(coord) * u_grid_space - u_dt * velocity;
-            vec2 prevCoord = prevPos / u_grid_space;
+            vec2 state = texelFetch(u_texture, coord, 0).xy;
 
-            ivec2 i = ivec2(prevCoord);
-            vec2 f = fract(prevCoord);
+            vec2 left = texelFetch(u_texture, ivec2(coord.x != 0 ? coord.x - 1 : textureSize.x -1, coord.y), 0).xy;
+            vec2 right = texelFetch(u_texture, ivec2(coord.x != textureSize.x ? coord.x + 1 : 0, coord.y), 0).xy;
+            vec2 down = texelFetch(u_texture, ivec2(coord.x, coord.y != 0 ? coord.y - 1 : textureSize.y - 1), 0).xy;
+            vec2 up = texelFetch(u_texture, ivec2(coord.x, coord.y != textureSize.y ? coord.y + 1 : 0), 0).xy;
 
-            ivec2 vR = i + ivec2(1, 0);
-            ivec2 vU = i + ivec2(0, 1);
-            ivec2 vRU = i + ivec2(1, 1);
+            vec2 lapl = (left + right + down + up - 4.0 * state) / (0.05 * 0.05);
+            float du = 0.0009 * lapl.x - state.x * state.y * state.y + u_feed * (1.0 - state.x);
+            float dv = 0.004 * lapl.y + state.x * state.y * state.y - state.y * (u_feed + u_kill);
+            vec2 dst = state + u_delta * vec2(du, dv);
 
-            vec2 velocity00 = texelFetch(u_velocity_texture, i, 0).xy;
-            vec2 velocity10 = texelFetch(u_velocity_texture, vR, 0).xy;
-            vec2 velocity01 = texelFetch(u_velocity_texture, vU, 0).xy;
-            vec2 velocity11 = texelFetch(u_velocity_texture, vRU, 0).xy;
-
-            if (vR.x > coordMax.x) {
-              velocity10.x = -velocity00.x;
-            } 
-
-            if (vU.y > coordMax.y) {
-              velocity01.y = -velocity00.y;
-            }
-
-            if (vRU.x > coordMax.x && vRU.y > coordMax.y) {
-              velocity11 = -velocity00;
-            }
-
-            o_velocity = mix(mix(velocity00, velocity10, f.x), mix(velocity01, velocity11, f.x), f.y);
+            o_grayScott = dst;
         }
     </script>
-    <script type="x-shader/x-fragment" id="projection_step01_fs">#version 300 es
-        precision highp float;
-
-        uniform sampler2D u_velocity_texture;
-        uniform float u_grid_space;
-
-        out vec2 o_project;
-
-        void main(void) {
-            ivec2 coord = ivec2(gl_FragCoord.xy);
-
-            vec2 left = texelFetch(u_velocity_texture, coord + ivec2(-1, 0), 0).xy;
-            vec2 right = texelFetch(u_velocity_texture, coord + ivec2(1, 0), 0).xy;
-            vec2 down = texelFetch(u_velocity_texture, coord + ivec2(0, -1), 0).xy;
-            vec2 up = texelFetch(u_velocity_texture, coord + ivec2(0, 1), 0).xy;
-
-            float div = -0.5 * u_grid_space * (right.x - left.x + up.y - down.y);
-
-            o_project = vec2(0.0, div);
-        }
-    </script>
-    <script type="x-shader/x-fragment" id="projection_step02_fs">#version 300 es
-        precision highp float;
-
-        uniform sampler2D u_project_texture;
-
-        out vec2 o_project;
-
-        void main(void) {
-            ivec2 coord = ivec2(gl_FragCoord.xy);
-
-            float div = texelFetch(u_project_texture, coord, 0).y;
-
-            float left = texelFetch(u_project_texture, coord + ivec2(-1, 0), 0).x;
-            float right = texelFetch(u_project_texture, coord + ivec2(1, 0), 0).x;
-            float down = texelFetch(u_project_texture, coord + ivec2(0, -1), 0).x;
-            float up = texelFetch(u_project_texture, coord + ivec2(0, 1), 0).x;
-
-            o_project = vec2((div + left + right + down + up) / 4.0, div);
-        }
-    </script>
-    <script type="x-shader/x-fragment" id="projection_step03_fs">#version 300 es
-        precision highp float;
-
-        uniform sampler2D u_velocity_texture;
-        uniform sampler2D u_project_texture;
-        uniform float u_grid_space;
-        uniform vec2 u_resolution;
-
-        out vec2 o_velocity;
-
-        void main(void) {
-            ivec2 coord = ivec2(gl_FragCoord.xy);
-            ivec2 coordMax = ivec2(u_resolution);
-
-            ivec2 vL = coord + ivec2(-1, 0);
-            ivec2 vR = coord + ivec2(1, 0);
-            ivec2 vD = coord + ivec2(0, -1);
-            ivec2 vU = coord + ivec2(0, 1);
-
-            vec2 velocity = texelFetch(u_velocity_texture, coord, 0).xy;
-
-            float center = texelFetch(u_project_texture, coord, 0).x;
-
-            float left = texelFetch(u_project_texture, vL, 0).x;
-            float right = texelFetch(u_project_texture, vR, 0).x;
-            float down = texelFetch(u_project_texture, vD, 0).x;
-            float up = texelFetch(u_project_texture, vU, 0).x;
-
-            o_velocity = velocity - 0.5 * vec2(right - left, up - down) / u_grid_space;
-        }
-    </script>
-    <script type="x-shader/x-fragment" id="render_velocity_fs">#version 300 es
+    <script type="x-shader/x-fragment" id="render_gray_scott_fs">#version 300 es
         precision highp float;
 
         #define PI 3.14159265359
 
-        uniform sampler2D u_velocity_texture;
+        uniform sampler2D u_texture;
 
         float rand(float n) {return fract(sin(n) * 43758.5453123);}
 
@@ -325,32 +96,13 @@
         void main(void) {
             ivec2 coord = ivec2(gl_FragCoord.xy);
 
-            vec2 center = texelFetch(u_velocity_texture, coord, 0).xy;
+            vec2 state = texelFetch(u_texture, coord, 0).xy;
 
-            vec2 left = texelFetch(u_velocity_texture, coord + ivec2(-1, 0), 0).xy;
-            vec2 right = texelFetch(u_velocity_texture, coord + ivec2(1, 0), 0).xy;
-            vec2 down = texelFetch(u_velocity_texture, coord + ivec2(0, -1), 0).xy;
-            vec2 up = texelFetch(u_velocity_texture, coord + ivec2(0, 1), 0).xy;
+            float brightness = min(1.0, pow(length(state), 1.5));
 
-            vec2 velocity = center + left + right + down + up; 
+            vec3 color = vec3(noise(state.x) * brightness, noise(state.y) * brightness, noise(length(state)));
 
-            float brightness = min(1.0, pow(length(velocity), 1.5));
-
-            vec3 color = vec3(noise(velocity.x) * brightness, noise(velocity.y) * brightness, noise(length(velocity)));
-
-            fragColor = vec4(color * 1.5, 1.0);
-        }
-    </script>
-    <script type="x-shader/x-fragment" id="render_density_fs">#version 300 es
-        precision highp float;
-
-        uniform sampler2D u_density_texture;
-
-        out vec4 fragColor;
-
-        void main(void) {
-            vec3 density = texelFetch(u_density_texture, ivec2(gl_FragCoord.xy), 0).xyx;
-            fragColor = vec4(density, 1.0);
+            fragColor = vec4(color, 1.0);
         }
     </script>
 </head>
